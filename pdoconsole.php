@@ -1,40 +1,52 @@
 <?php
 /*
  * PDO Console (https://github.com/ibnteo/pdoconsole)
- * Version 1.0 (2023-02-07)
+ * Version 2.0 (2023-02-09)
  */
-if (($_POST['query'] ?? false) && ($_SERVER['HTTP_HX_REQUEST'] ?? false)):
+
+define ('CRYPT_PASS', 'CrYptPas$w0rd'); // change it
+
+define ('COOKIE_EXPIRES', 60*60*24*365);
+
+define ('ROWS_MAX', 1000);
+
+$prefix = preg_replace('/[^\w\d\-_]/i', '', $_GET['prefix'] ?? '');
+if ($_SERVER['HTTP_HX_REQUEST'] ?? false):
 	$rows = [];
-	$time = 0;
-	$count = 0;
 	$error = '';
-	try {
-		$db = new PDO($_POST['dsn'], $_POST['username'], $_POST['passwd'], [
-			PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-			PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-			PDO::ATTR_EMULATE_PREPARES => true,
-			PDO::ATTR_PERSISTENT => true,
-		]);
-		$start = explode(' ', microtime());
-		$stmt = $db->prepare($_POST['query']);
-		$result = $stmt->execute();
-		while ($row = $stmt->fetch()) {
-			$rows[] = $row;
+	if (($_POST['hash'] ?? '') === md5(CRYPT_PASS)) {
+		$time = 0;
+		$count = 0;
+		$expires = time() + COOKIE_EXPIRES;
+		$cookie = [];
+		foreach (['dsn','username','passwd'] as $name) {
+			$cookie[$name] = $_POST[$name];
 		}
-		$end = explode(' ', microtime());
-		$time = (floatval($end[1])+floatval($end[0])) - (floatval($start[1])+floatval($start[0]));
-		$count = $stmt->rowCount() ?: count($rows);
-	} catch (Exception $e) {
-		$error = $e->getMessage();
+		setcookie("pdoconsole-$prefix", encrypt(http_build_query($cookie)), $expires);
+		try {
+			$db = new PDO($_POST['dsn'], $_POST['username'], $_POST['passwd'], [
+				PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+				PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+				PDO::ATTR_EMULATE_PREPARES => true,
+				PDO::ATTR_PERSISTENT => true,
+			]);
+			$start = explode(' ', microtime());
+			$stmt = $db->prepare($_POST['sql']);
+			$result = $stmt->execute();
+			while ($row = $stmt->fetch()) {
+				$rows[] = $row;
+			}
+			$end = explode(' ', microtime());
+			$time = (floatval($end[1])+floatval($end[0])) - (floatval($start[1])+floatval($start[0]));
+			$count = $stmt->rowCount() ?: count($rows);
+		} catch (Exception $e) {
+			$error = $e->getMessage();
+		}
+		info($time, $count);
+	} else {
+		$error = 'The hash of the CRYPT_PASS is fake';
+		info();
 	}
-?>
-<div class="d-flex align-items-baseline mb-3">
-	<button class="btn btn-warning rounded-0 px-4 me-3">Run</button>
-	<label class="font-monospace text-secondary me-3 d-none d-sm-block" title="Ctrl+Enter or Cmd+Enter">C-Enter</label>
-	<div><?php indicator(); ?></div>
-	<div class="font-monospace ms-auto"><?php echo number_format($time, 3, '.', ''); ?> sec, <?php echo $count;?> rows</div>
-</div>
-<?php
 	if ($error):
 ?>
 <div class="alert alert-danger">
@@ -42,12 +54,11 @@ if (($_POST['query'] ?? false) && ($_SERVER['HTTP_HX_REQUEST'] ?? false)):
 </div>
 <?php
 	elseif ($rows):
-	$maxRows = 1000;
 ?>
 <table class="table table-bordered table-hover table-sm">
 <thead>
 <tr>
-<th class="bg-body-tertiary text-secondary text-opacity-50 text-end">№</th>
+<th class="bg-body-tertiary text-secondary text-opacity-50 text-end" width="1">№</th>
 <?php
 		foreach ($rows[0] as $key=>$_):
 ?>
@@ -67,24 +78,24 @@ if (($_POST['query'] ?? false) && ($_SERVER['HTTP_HX_REQUEST'] ?? false)):
 			foreach ($row as $key=>$value):
 ?>
 <td class="bg-body<?php echo is_null($value) ? ' text-secondary' : ''; ?>" style="max-width:50vw">
-<div class="overflow-auto mb-0" style="max-height:20vh; white-space:pre;"><?php echo is_null($value) ? 'NULL' : htmlspecialchars($value);?></div>
+<div class="overflow-auto" style="max-height:20vh; white-space:pre;"><?php echo is_null($value) ? 'NULL' : htmlspecialchars($value);?></div>
 </td>
 <?php
 			endforeach;
 ?>
 </tr>
 <?php
-			if ($i>=($maxRows-1)) break;
+			if (ROWS_MAX && $i >= (ROWS_MAX - 1)) break;
 		endforeach;
 ?>
 </tbody>
 <?php
-		if (count($rows) > $maxRows):
+		if (ROWS_MAX && count($rows) > ROWS_MAX):
 ?>
 <tfoot>
 <tr>
 <th class="bg-body-tertiary text-secondary text-opacity-50 text-end">...</th>
-<td class="bg-body-tertiary" colspan="<?php echo count($rows[0]); ?>">+ <?php echo count($rows) - $maxRows; ?> rows</td>
+<td class="bg-body-tertiary" colspan="<?php echo count($rows[0]); ?>">+ <?php echo count($rows) - ROWS_MAX; ?> rows</td>
 </tr>
 </tfoot>
 <?php
@@ -95,9 +106,12 @@ if (($_POST['query'] ?? false) && ($_SERVER['HTTP_HX_REQUEST'] ?? false)):
 	else:
 		if ($result) echo 'Ok';
 	endif;
+
 else:
-	$prefix = preg_replace('/[^a-z0-9\-_]/i', '', $_GET['prefix'] ?? '');
-	if ($prefix) $prefix .= '-';
+
+	$cookie = [];
+	parse_str(decrypt($_COOKIE["pdoconsole-$prefix"] ?? ''), $cookie);
+
 ?>
 <!doctype html>
 <html data-bs-theme="auto">
@@ -109,6 +123,7 @@ else:
 <?php bootstrap(); ?>
 <?php htmx(); ?>
 <script>
+const prefix = '<?php echo htmlspecialchars($prefix); ?>';
 if (localStorage.getItem('pdoconsole-theme')) document.documentElement.setAttribute('data-bs-theme', localStorage.getItem('pdoconsole-theme'));
 window.addEventListener('keydown', function(event) {
 	if (event.key == 'Enter' && (event.ctrlKey || event.metaKey)) {
@@ -138,7 +153,6 @@ function rowRotate(th) {
 			}
 			ntd.style.maxWidth = '75vw';
 			const npre = document.createElement('div');
-			npre.classList.add('mb-0');
 			npre.classList.add('overflow-auto');
 			npre.style.maxHeight = '20vh';
 			npre.style.whiteSpace = 'pre';
@@ -155,7 +169,6 @@ function rowRotate(th) {
 				}
 				ntd.style.maxWidth = '75vw';
 				const npre = document.createElement('div');
-				npre.classList.add('mb-0');
 				npre.classList.add('overflow-auto');
 				npre.style.maxHeight = '20vh';
 				npre.style.whiteSpace = 'pre';
@@ -182,7 +195,6 @@ function rowRotate(th) {
 				ntd.style.maxWidth = '50vw';
 				ntd.setAttribute('colspan', cols - 1);
 				const npre = document.createElement('div');
-				npre.classList.add('mb-0');
 				npre.style.whiteSpace = 'pre';
 				npre.classList.add('overflow-auto');
 				npre.appendChild(document.createTextNode(tr.children[i+1].innerText));
@@ -198,7 +210,6 @@ function rowRotate(th) {
 			ntd.style.maxWidth = '50vw';
 			ntd.setAttribute('colspan', cols - 1);
 			const npre = document.createElement('div');
-			npre.classList.add('mb-0');
 			npre.style.whiteSpace = 'pre';
 			npre.classList.add('overflow-auto');
 			ntd.appendChild(npre);
@@ -215,87 +226,136 @@ function rowRotate(th) {
 		}
 	}
 }
+function theme() {
+	document.documentElement.setAttribute('data-bs-theme',
+		document.documentElement.getAttribute('data-bs-theme') == 'dark' ? 'light' : 'dark'
+	);
+	localStorage.setItem('pdoconsole-theme', document.documentElement.getAttribute('data-bs-theme'));
+}
+function locationReplace(value) {
+	location.replace('#' + btoa(value).replace('=', '\\='));
+}
+function sessionLog(query) {
+	let querys = JSON.parse(sessionStorage.getItem('pdoconsole-'+prefix));
+	if (! querys) querys = [];
+	if (querys.indexOf(query) >= 0) {
+		querys.splice(querys.indexOf(query), 1);
+	}
+	querys.push(query);
+	sessionStorage.setItem('pdoconsole-'+prefix, JSON.stringify(querys));
+}
+function historyPrev() {
+	const sql = document.getElementById('sql');
+	const query = sql.value;
+	let querys = JSON.parse(sessionStorage.getItem('pdoconsole-'+prefix));
+	if (! querys) querys = [];
+	let index = querys.indexOf(query)
+	if (index < 0) index = querys.length;
+	index --;
+	if (index >= 0) {
+		sql.value = querys[index];
+		locationReplace(sql.value);
+	}
+}
+function historyNext() {
+	const sql = document.getElementById('sql');
+	const query = sql.value;
+	let querys = JSON.parse(sessionStorage.getItem('pdoconsole-'+prefix));
+	if (! querys) querys = [];
+	let index = querys.indexOf(query)
+	if (index < 0) index = -1;
+	index ++;
+	if (index < querys.length) {
+		sql.value = querys[index];
+		locationReplace(sql.value);
+	}
+}
 </script>
 </head>
 <body class="bg-body-secondary p-2">
-<form action="" method="POST" id="form" hx-post="" hx-target="#result">
+<form action="" method="POST" id="form" hx-post="" hx-target="#result" hx-boost="false" onsubmit="sessionLog(this.sql.value)">
+<input type="hidden" name="hash" value="<?php echo md5(CRYPT_PASS); ?>"/> 
 <div class="d-flex align-items-center mb-1">
-	<input class="form-control form-control-sm font-monospace rounded-0" name="dsn" id="dsn" value="" autocomplete="off" placeholder="pgsql:host=localhost; port=5432; dbname=db" onchange="localStorage.setItem('pdoconsole-<?php echo $prefix; ?>dsn', this.value)"/>
-	<input class="form-control form-control-sm font-monospace rounded-0" style="max-width:20ch" name="username" id="username" autocomplete="off" placeholder="username" value="" onchange="localStorage.setItem('pdoconsole-<?php echo $prefix; ?>username', this.value)"/>
-	<input class="form-control form-control-sm font-monospace rounded-0" style="max-width:20ch" id="passwd" name="passwd" autocomplete="off" type="password" placeholder="passwd" value="" onchange="localStorage.setItem('pdoconsole-<?php echo $prefix; ?>passwd', this.value)"/>
-	<button class="bg-transparent border-0 px-2 text-body" type="button" onclick="
-document.documentElement.setAttribute('data-bs-theme', document.documentElement.getAttribute('data-bs-theme') == 'dark' ? 'light' : 'dark');
-localStorage.setItem('pdoconsole-theme', document.documentElement.getAttribute('data-bs-theme'));">
-		<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-circle-half" viewBox="0 0 16 16">
-		<path d="M8 15A7 7 0 1 0 8 1v14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z"/>
-		</svg>
-	</button>
+	<input class="form-control form-control-sm font-monospace rounded-0 me-1" name="dsn" autocomplete="off" placeholder="pgsql:host=localhost;port=5432;dbname=db" value="<?php echo htmlspecialchars($cookie['dsn'] ?? ''); ?>"/>
+	<input class="form-control form-control-sm font-monospace rounded-0 me-1" style="max-width:20ch" name="username" autocomplete="off" placeholder="username" value="<?php echo htmlspecialchars($cookie['username'] ?? ''); ?>"/>
+	<input class="form-control form-control-sm font-monospace rounded-0" style="max-width:20ch" name="passwd" autocomplete="off" type="password" placeholder="passwd" value="<?php echo htmlspecialchars($cookie['passwd'] ?? ''); ?>"/>
 </div>
-<textarea class="form-control font-monospace rounded-0 mb-3" style="height:20vh; tab-size:4;" id="query" name="query" onkeydown="localStorage.setItem('pdoconsole-<?php echo $prefix; ?>query', this.value); return keydownQuery(this)" onchange="localStorage.setItem('pdoconsole-<?php echo $prefix; ?>query', this.value)"></textarea>
-<div id="result" class1="overflow-auto">
-	<div class="d-flex align-items-baseline">
-		<button class="btn btn-warning rounded-0 px-4 me-3">Run</button>
-		<label class="font-monospace text-secondary me-3" title="Ctrl+Enter or Cmd+Enter">C-Enter</label>
-		<div><?php indicator(); ?></div>
-	</div>
+<textarea class="form-control font-monospace rounded-0 mb-3 px-2" style="height:20vh; tab-size:4;" id="sql" name="sql" onkeyup="locationReplace(this.value)" onchange="locationReplace(this.value)"></textarea>
+<div id="result" hx-boost="false">
+	<?php info(); ?>
 </div>
 </form>
 <script>
-if (localStorage.getItem('pdoconsole-<?php echo $prefix; ?>dsn')) document.getElementById('dsn').value = localStorage.getItem('pdoconsole-<?php echo $prefix; ?>dsn');
-if (localStorage.getItem('pdoconsole-<?php echo $prefix; ?>username')) document.getElementById('username').value = localStorage.getItem('pdoconsole-<?php echo $prefix; ?>username');
-if (localStorage.getItem('pdoconsole-<?php echo $prefix; ?>passwd')) document.getElementById('passwd').value = localStorage.getItem('pdoconsole-<?php echo $prefix; ?>passwd');
-if (localStorage.getItem('pdoconsole-<?php echo $prefix; ?>query')) document.getElementById('query').value = localStorage.getItem('pdoconsole-<?php echo $prefix; ?>query');
+const url = location.href.split('#');
+if (url.length > 1) document.getElementById('sql').value = atob(url[1].replace('\\=', '='));
 </script>
 </body>
 </html>
 <?php
 endif;
-function indicator() {
-// <svg class="htmx-indicator" width="42" height="42" stroke="currentColor" ...>
+
+function encrypt($text) {
+	$iv = openssl_random_pseudo_bytes(openssl_cipher_iv_length('AES128'));
+	return openssl_encrypt($text, 'AES128', CRYPT_PASS, 0, $iv).':'.base64_encode($iv);
+}
+function decrypt($data) {
+	$crypt = explode(':', $data, 2);
+	return openssl_decrypt($crypt[0], 'AES128', CRYPT_PASS, 0, base64_decode($crypt[1] ?? ''));
+}
+
+function info($time=null, $count=null) {
 ?>
-<svg class="htmx-indicator" width="42" height="42" stroke="currentColor" viewBox="0 0 45 45" xmlns="http://www.w3.org/2000/svg">
-    <g fill="none" fill-rule="evenodd" transform="translate(1 1)" stroke-width="2">
-        <circle cx="22" cy="22" r="6" stroke-opacity="0">
-            <animate attributeName="r"
-                 begin="1.5s" dur="3s"
-                 values="6;22"
-                 calcMode="linear"
-                 repeatCount="indefinite" />
-            <animate attributeName="stroke-opacity"
-                 begin="1.5s" dur="3s"
-                 values="1;0" calcMode="linear"
-                 repeatCount="indefinite" />
-            <animate attributeName="stroke-width"
-                 begin="1.5s" dur="3s"
-                 values="2;0" calcMode="linear"
-                 repeatCount="indefinite" />
-        </circle>
-        <circle cx="22" cy="22" r="6" stroke-opacity="0">
-            <animate attributeName="r"
-                 begin="3s" dur="3s"
-                 values="6;22"
-                 calcMode="linear"
-                 repeatCount="indefinite" />
-            <animate attributeName="stroke-opacity"
-                 begin="3s" dur="3s"
-                 values="1;0" calcMode="linear"
-                 repeatCount="indefinite" />
-            <animate attributeName="stroke-width"
-                 begin="3s" dur="3s"
-                 values="2;0" calcMode="linear"
-                 repeatCount="indefinite" />
-        </circle>
-        <circle cx="22" cy="22" r="8">
-            <animate attributeName="r"
-                 begin="0s" dur="1.5s"
-                 values="6;1;2;3;4;5;6"
-                 calcMode="linear"
-                 repeatCount="indefinite" />
-        </circle>
+<div class="d-flex align-items-baseline mb-3">
+	<button class="btn btn-warning rounded-0 px-4 me-3">Run</button>
+	<label class="font-monospace text-secondary me-2 d-none d-sm-block" title="Ctrl+Enter or Cmd+Enter">C-Enter</label>
+	<div class="me-2"><?php indicator(); ?></div>
+	<?php if (! is_null($time) && ! is_null($count)): ?>
+	<div class="font-monospace me-2"><?php echo number_format($time, 3, '.', ''); ?>&nbsp;sec, <?php echo $count;?>&nbsp;rows</div>
+	<?php endif; ?>
+	<div class="ms-auto text-nowrap">
+		<button class="bg-transparent border-0 px-2 text-body" type="button" onclick="historyPrev()" title="Предыдущий запрос в истории">
+			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-chevron-left" viewBox="0 0 16 16">
+				<path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+			</svg>
+		</button>
+		<button class="bg-transparent border-0 px-2 text-body me-2" type="button" onclick="historyNext()" title="Следующий запрос в истории">
+			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-chevron-right" viewBox="0 0 16 16">
+				<path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
+			</svg>
+		</button>
+		<button class="bg-transparent border-0 px-2 text-body" type="button" onclick="theme()" title="Переключить светлую или тёмную тему">
+			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-circle-half" viewBox="0 0 16 16">
+				<path d="M8 15A7 7 0 1 0 8 1v14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z"/>
+			</svg>
+		</button>
+	</div>
+</div>
+<?php
+}
+
+function indicator() {
+// <svg class="htmx-indicator" width="16" height="16" stroke="currentColor" ...>
+?>
+<!-- By Sam Herbert (@sherb), for everyone. More @ http://goo.gl/7AJzbL -->
+<svg class="htmx-indicator" width="16" height="16" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg" stroke="currentColor">
+    <g fill="none" fill-rule="evenodd">
+        <g transform="translate(1 1)" stroke-width="2">
+            <circle stroke-opacity=".5" cx="18" cy="18" r="18"/>
+            <path d="M36 18c0-9.94-8.06-18-18-18">
+                <animateTransform
+                    attributeName="transform"
+                    type="rotate"
+                    from="0 18 18"
+                    to="360 18 18"
+                    dur="1s"
+                    repeatCount="indefinite"/>
+            </path>
+        </g>
     </g>
 </svg>
 <?php
 }
+
 function bootstrap() {
 ?>
 <style>
@@ -307,6 +367,7 @@ function bootstrap() {
 </style>
 <?php
 }
+
 function htmx() {
 ?>
 <script>
