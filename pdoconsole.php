@@ -1,7 +1,7 @@
 <?php
 /*
  * PDO Console (https://github.com/ibnteo/pdoconsole)
- * Version 2.0 (2023-02-09)
+ * Version 2.1 (2023-02-09)
  */
 
 define ('CRYPT_PASS', 'CrYptPas$w0rd'); // change it
@@ -10,11 +10,11 @@ define ('COOKIE_EXPIRES', 60*60*24*365);
 
 define ('ROWS_MAX', 1000);
 
-$prefix = preg_replace('/[^\w\d\-_]/i', '', $_GET['prefix'] ?? '');
-if ($_SERVER['HTTP_HX_REQUEST'] ?? false):
+$prefix = preg_replace('/[^\w\d\-_]/i', '', isset($_GET['prefix']) ? $_GET['prefix'] : '');
+if (isset($_SERVER['HTTP_HX_REQUEST'])):
 	$rows = [];
 	$error = '';
-	if (($_POST['hash'] ?? '') === md5(CRYPT_PASS)) {
+	if ((isset($_POST['hash']) ? $_POST['hash'] : '') === md5(CRYPT_PASS)) {
 		$time = 0;
 		$count = 0;
 		$expires = time() + COOKIE_EXPIRES;
@@ -110,7 +110,7 @@ if ($_SERVER['HTTP_HX_REQUEST'] ?? false):
 else:
 
 	$cookie = [];
-	parse_str(decrypt($_COOKIE["pdoconsole-$prefix"] ?? ''), $cookie);
+	parse_str(decrypt(isset($_COOKIE["pdoconsole-$prefix"]) ? $_COOKIE["pdoconsole-$prefix"] : ''), $cookie);
 
 ?>
 <!doctype html>
@@ -250,7 +250,13 @@ function historyPrev() {
 	let querys = JSON.parse(sessionStorage.getItem('pdoconsole-'+prefix));
 	if (! querys) querys = [];
 	let index = querys.indexOf(query)
-	if (index < 0) index = querys.length;
+	if (index < 0) {
+		index = querys.length;
+		if (query) {
+			querys.push(query);
+			sessionStorage.setItem('pdoconsole-'+prefix, JSON.stringify(querys));
+		}
+	}
 	index --;
 	if (index >= 0) {
 		sql.value = querys[index];
@@ -263,7 +269,13 @@ function historyNext() {
 	let querys = JSON.parse(sessionStorage.getItem('pdoconsole-'+prefix));
 	if (! querys) querys = [];
 	let index = querys.indexOf(query)
-	if (index < 0) index = -1;
+	if (index < 0) {
+		index = -1;
+		if (query) {
+			querys.push(query);
+			sessionStorage.setItem('pdoconsole-'+prefix, JSON.stringify(querys));
+		}
+	}
 	index ++;
 	if (index < querys.length) {
 		sql.value = querys[index];
@@ -276,9 +288,9 @@ function historyNext() {
 <form action="" method="POST" id="form" hx-post="" hx-target="#result" hx-boost="false" onsubmit="sessionLog(this.sql.value)">
 <input type="hidden" name="hash" value="<?php echo md5(CRYPT_PASS); ?>"/> 
 <div class="d-flex align-items-center mb-1">
-	<input class="form-control form-control-sm font-monospace rounded-0 me-1" name="dsn" autocomplete="off" placeholder="pgsql:host=localhost;port=5432;dbname=db" value="<?php echo htmlspecialchars($cookie['dsn'] ?? ''); ?>"/>
-	<input class="form-control form-control-sm font-monospace rounded-0 me-1" style="max-width:20ch" name="username" autocomplete="off" placeholder="username" value="<?php echo htmlspecialchars($cookie['username'] ?? ''); ?>"/>
-	<input class="form-control form-control-sm font-monospace rounded-0" style="max-width:20ch" name="passwd" autocomplete="off" type="password" placeholder="passwd" value="<?php echo htmlspecialchars($cookie['passwd'] ?? ''); ?>"/>
+	<input class="form-control form-control-sm font-monospace rounded-0 me-1" name="dsn" autocomplete="off" placeholder="pgsql:host=localhost;port=5432;dbname=db" value="<?php echo htmlspecialchars(isset($cookie['dsn']) ? $cookie['dsn'] : ''); ?>"/>
+	<input class="form-control form-control-sm font-monospace rounded-0 me-1" style="max-width:20ch" name="username" autocomplete="off" placeholder="username" value="<?php echo htmlspecialchars(isset($cookie['username']) ? $cookie['username'] : ''); ?>"/>
+	<input class="form-control form-control-sm font-monospace rounded-0" style="max-width:20ch" name="passwd" autocomplete="off" type="password" placeholder="passwd" value="<?php echo htmlspecialchars(isset($cookie['passwd']) ? $cookie['passwd'] : ''); ?>"/>
 </div>
 <textarea class="form-control font-monospace rounded-0 mb-3 px-2" style="height:20vh; tab-size:4;" id="sql" name="sql" onkeyup="locationReplace(this.value)" onchange="locationReplace(this.value)"></textarea>
 <div id="result" hx-boost="false">
@@ -300,7 +312,7 @@ function encrypt($text) {
 }
 function decrypt($data) {
 	$crypt = explode(':', $data, 2);
-	return openssl_decrypt($crypt[0], 'AES128', CRYPT_PASS, 0, base64_decode($crypt[1] ?? ''));
+	return openssl_decrypt($crypt[0], 'AES128', CRYPT_PASS, 0, base64_decode(isset($crypt[1]) ? $crypt[1] : ''));
 }
 
 function info($time=null, $count=null) {
