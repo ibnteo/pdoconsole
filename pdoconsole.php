@@ -1,7 +1,7 @@
 <?php
 /*
  * PDO Console (https://github.com/ibnteo/pdoconsole)
- * Version 2.1 (2023-02-09)
+ * Version 2.2 (2023-02-14)
  */
 
 define ('CRYPT_PASS', 'CrYptPas$w0rd'); // change it
@@ -23,21 +23,43 @@ if (isset($_SERVER['HTTP_HX_REQUEST'])):
 			$cookie[$name] = $_POST[$name];
 		}
 		setcookie("pdoconsole-$prefix", encrypt(http_build_query($cookie)), $expires);
+		$dsn = isset($_POST['dsn']) ? $_POST['dsn'] : '';
+		$username = isset($_POST['username']) ? $_POST['username'] : '';
+		$passwd = isset($_POST['passwd']) ? $_POST['passwd'] : '';
+		$sql = trim(isset($_POST['sql']) ? $_POST['sql'] : '');
+		$dbtype = trim(strtolower(explode(':', $dsn)[0]));
+		if ($dbtype == 'pgsql') {
+			if (preg_match('/^SHOW\s+DATABASES;?$/i', $sql) || $sql == '\l') {
+				$sql = "SELECT datname FROM pg_database WHERE datistemplate=false ORDER BY datname;";
+			} elseif (preg_match('/^SHOW\s+TABLES;?$/i', $sql) || $sql == '\d') {
+				$sql = "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname='public' ORDER BY tablename;";
+			} elseif (preg_match('/^SHOW\s+(FIELDS|COLUMNS)\s+(FROM|IN)\s+(\w+);?$/i', $sql, $m) || preg_match('/^(\\\\d)(\s+)(\w+)$/i', $sql, $m)) {
+				$sql = "SELECT column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_name='$m[3]' ORDER BY ordinal_position;";
+			} elseif (preg_match('/^DESCRIBE\s+TABLE\s+(\w+);?$/i', $sql, $m) || preg_match('/^\\\\d\+\s+(\w+)$/i', $sql, $m)) {
+				$sql = "SELECT * FROM information_schema.columns WHERE table_name='$m[1]' ORDER BY ordinal_position;";
+			}
+		} elseif ($dbtype == 'sqlite') {
+			if (preg_match('/^SHOW\s+TABLES;?$/i', $sql) || $sql == '\d' || strtolower($sql) == '.tables') {
+				$sql = "SELECT * FROM sqlite_schema;";
+			} elseif (preg_match('/^SHOW\s+(FIELDS|COLUMNS)\s+(FROM|IN)\s+(\w+);?$/i', $sql, $m) || preg_match('/^(\\\\d\+?)(\s+)(\w+)$/i', $sql, $m)) {
+				$sql = "PRAGMA table_info($m[3]);";
+			}
+		}
 		try {
-			$db = new PDO($_POST['dsn'], $_POST['username'], $_POST['passwd'], [
+			$db = new PDO($dsn, $username, $passwd, [
 				PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
 				PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
 				PDO::ATTR_EMULATE_PREPARES => true,
 				PDO::ATTR_PERSISTENT => true,
 			]);
 			$start = explode(' ', microtime());
-			$stmt = $db->prepare($_POST['sql']);
+			$stmt = $db->prepare($sql);
 			$result = $stmt->execute();
 			while ($row = $stmt->fetch()) {
 				$rows[] = $row;
 			}
 			$end = explode(' ', microtime());
-			$time = (floatval($end[1])+floatval($end[0])) - (floatval($start[1])+floatval($start[0]));
+			$time = (floatval($end[1]) + floatval($end[0])) * 1000 - (floatval($start[1]) + floatval($start[0])) * 1000;
 			$count = $stmt->rowCount() ?: count($rows);
 		} catch (Exception $e) {
 			$error = $e->getMessage();
@@ -126,14 +148,24 @@ else:
 const prefix = '<?php echo htmlspecialchars($prefix); ?>';
 if (localStorage.getItem('pdoconsole-theme')) document.documentElement.setAttribute('data-bs-theme', localStorage.getItem('pdoconsole-theme'));
 window.addEventListener('keydown', function(event) {
-	if (event.key == 'Enter' && (event.ctrlKey || event.metaKey)) {
+	if (event.code == 'Enter' && (event.ctrlKey || event.metaKey)) {
+		event.preventDefault();
 		const e = new Event('submit');
 		document.getElementById('form').dispatchEvent(e);
 
+	} else if (event.code == 'ArrowLeft' && event.altKey) {
+		event.preventDefault();
+		historyPrev();
+	} else if (event.code == 'ArrowRight' && event.altKey) {
+		event.preventDefault();
+		historyNext();
+	} else if (event.code == 'KeyB' && event.ctrlKey) {
+		event.preventDefault();
+		theme();
 	}
 });
 function keydownQuery(el) {
-	if (event.key == 'Tab' && ! event.shiftKey) {
+	if (event.code == 'Tab' && ! event.shiftKey) {
 		event.preventDefault();
 		document.execCommand('insertText', null, "\t")
 	}
@@ -233,7 +265,7 @@ function theme() {
 	localStorage.setItem('pdoconsole-theme', document.documentElement.getAttribute('data-bs-theme'));
 }
 function locationReplace(value) {
-	location.replace('#' + btoa(value).replace('=', '\\='));
+	location.replace('#' + btoa(unescape(encodeURIComponent(value))).replaceAll('=', '\\='));
 }
 function sessionLog(query) {
 	let querys = JSON.parse(sessionStorage.getItem('pdoconsole-'+prefix));
@@ -299,7 +331,7 @@ function historyNext() {
 </form>
 <script>
 const url = location.href.split('#');
-if (url.length > 1) document.getElementById('sql').value = atob(url[1].replace('\\=', '='));
+if (url.length > 1) document.getElementById('sql').value = atob(url[1].replaceAll('\\=', '='));
 </script>
 </body>
 </html>
@@ -322,20 +354,20 @@ function info($time=null, $count=null) {
 	<label class="font-monospace text-secondary me-2 d-none d-sm-block" title="Ctrl+Enter or Cmd+Enter">C-Enter</label>
 	<div class="me-2"><?php indicator(); ?></div>
 	<?php if (! is_null($time) && ! is_null($count)): ?>
-	<div class="font-monospace me-2"><?php echo number_format($time, 3, '.', ''); ?>&nbsp;sec, <?php echo $count;?>&nbsp;rows</div>
+	<div class="font-monospace me-2"><?php echo number_format($time, 0, '.', '&nbsp;'); ?>&nbsp;ms, <?php echo $count;?>&nbsp;rows</div>
 	<?php endif; ?>
 	<div class="ms-auto text-nowrap">
-		<button class="bg-transparent border-0 px-2 text-body" type="button" onclick="historyPrev()" title="Предыдущий запрос в истории">
+		<button class="bg-transparent border-0 px-2 text-body" type="button" onclick="historyPrev()" title="Предыдущий запрос в истории (Alt+Left)">
 			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-chevron-left" viewBox="0 0 16 16">
 				<path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
 			</svg>
 		</button>
-		<button class="bg-transparent border-0 px-2 text-body me-2" type="button" onclick="historyNext()" title="Следующий запрос в истории">
+		<button class="bg-transparent border-0 px-2 text-body me-2" type="button" onclick="historyNext()" title="Следующий запрос в истории (Alt+Right)">
 			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-chevron-right" viewBox="0 0 16 16">
 				<path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
 			</svg>
 		</button>
-		<button class="bg-transparent border-0 px-2 text-body" type="button" onclick="theme()" title="Переключить светлую или тёмную тему">
+		<button class="bg-transparent border-0 px-2 text-body" type="button" onclick="theme()" title="Переключить светлую или тёмную тему (Ctrl+B)">
 			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-circle-half" viewBox="0 0 16 16">
 				<path d="M8 15A7 7 0 1 0 8 1v14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z"/>
 			</svg>
