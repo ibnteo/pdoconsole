@@ -1,7 +1,7 @@
 <?php
 /*
  * PDO Console (https://github.com/ibnteo/pdoconsole)
- * Version 2.2 (2023-02-14)
+ * Version 2.3 (2023-02-18)
  */
 
 define ('CRYPT_PASS', 'CrYptPas$w0rd'); // change it
@@ -168,6 +168,15 @@ function keydownQuery(el) {
 	if (event.code == 'Tab' && ! event.shiftKey) {
 		event.preventDefault();
 		document.execCommand('insertText', null, "\t")
+	} else if (event.code == 'Enter') {
+		const startValue = el.value.substr(0, el.selectionStart);
+		const str = el.value.substr(0, el.selectionStart).split('\n').pop();
+		const re = new RegExp('^\\s+');
+		const indent = str.match(re);
+		if (indent) {
+			event.preventDefault();
+			document.execCommand('insertText', null, '\n'+indent[0])
+		}
 	}
 }
 function rowRotate(th) {
@@ -324,7 +333,7 @@ function historyNext() {
 	<input class="form-control form-control-sm font-monospace rounded-0 me-1" style="max-width:20ch" name="username" autocomplete="off" placeholder="username" value="<?php echo htmlspecialchars(isset($cookie['username']) ? $cookie['username'] : ''); ?>"/>
 	<input class="form-control form-control-sm font-monospace rounded-0" style="max-width:20ch" name="passwd" autocomplete="off" type="password" placeholder="passwd" value="<?php echo htmlspecialchars(isset($cookie['passwd']) ? $cookie['passwd'] : ''); ?>"/>
 </div>
-<textarea class="form-control font-monospace rounded-0 mb-3 px-2" style="height:20vh; tab-size:4;" id="sql" name="sql" onkeyup="locationReplace(this.value)" onchange="locationReplace(this.value)"></textarea>
+<textarea class="form-control font-monospace rounded-0 mb-3 px-2" style="height:20vh; tab-size:4;" id="sql" name="sql" onkeydown="keydownQuery(this)" onkeyup="locationReplace(this.value)" onchange="locationReplace(this.value)"></textarea>
 <div id="result" hx-boost="false">
 	<?php info(); ?>
 </div>

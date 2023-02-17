@@ -12,7 +12,7 @@
 
 При перезагрузке консоли выполнение последнего запроса НЕ присходит, для его запуска необходимо нажать кнопку `Run` или нажать на клавиатуре `Ctrl+Enter` или `Cmd+Enter`.
 
-В текстовом поле SQL-запроса можно вводить отступы (шириной 4 пробела) кнопкой `Tab`, для возврата на предыдущие поля работает сочетание `Shift+Tab`.
+В текстовом поле SQL-запроса можно вводить отступы (шириной 4 пробела) кнопкой `Tab`, для возврата на предыдущие поля работает сочетание `Shift+Tab`. Есть автоотствуп, при нажатии `Enter` добавляются знаки пробела и табуляции с текущей строки.
 
 Вводимый запрос сохраняется в адресной строке в `base64` кодировке после символа `#` по мере ввода (по событиям `onkeydown` и `onchange`), при перезагрузке страницы он будет раскодирован и помещён в поле ввода. При передаче кому-либо такой ссылки, передаётся лишь SQL-запрос без данных подключения к базе данных, их необходимо будет ввести вручную.
 
@@ -26,16 +26,16 @@
 
 Для удобства работы в некоторых базах данных создана замена определённых запросов на аналоги в этой базе данных:
 
-* pgsql: `show databases` или `\l` = `SELECT datname FROM pg_database WHERE datistemplate=false ORDER BY datname`
-* pgsql: `show tables` или `\d` = `SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname='public' ORDER BY tablename`
-* pgsql: `show fields|columns from|in table_name` или `\d table_name` = `SELECT column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_name='table_name' ORDER BY ordinal_position`
-* pgsql: `describe table table_name` или `\d+ table_name` = `SELECT * FROM information_schema.columns WHERE table_name='table_name' ORDER BY ordinal_position`
-* sqlite: `show tables` или `\d` или `.tables` = `SELECT * FROM sqlite_schema`
-* sqlite: `show fields|columns from|in table_name` или `\d table_name` = `PRAGMA table_info(table_name)`
+* pgsql: `show databases` или `\l` = `SELECT datname FROM pg_database WHERE datistemplate=false ORDER BY datname`;
+* pgsql: `show tables` или `\d` = `SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname='public' ORDER BY tablename`;
+* pgsql: `show fields|columns from|in table_name` или `\d table_name` = `SELECT column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_name='table_name' ORDER BY ordinal_position`;
+* pgsql: `describe table table_name` или `\d+ table_name` = `SELECT * FROM information_schema.columns WHERE table_name='table_name' ORDER BY ordinal_position`;
+* sqlite: `show tables` или `\d` или `.tables` = `SELECT * FROM sqlite_schema`;
+* sqlite: `show fields|columns from|in table_name` или `\d table_name` = `PRAGMA table_info(table_name)`;
 
-Можно выбрать светлую и тёмную тему оформления, переключаются нажатием на иконку справа сверху. Выбранная тема сохраняется в локальном хранилище `localStorage` без префикса базы данных.
+Можно выбрать светлую и тёмную тему оформления, переключаются нажатием на иконку справа сверху. Выбранная тема сохраняется в локальном хранилище `localStorage` без префикса базы данных. Можно переключать тему сочетанием кнопок `Ctrl+B`.
 
-Все необходимые для работы файлы находятся внутри скрипта `pdoconsole.php`, и загружаются однократно вместе с телом страницы. Кроме нескольких иконок, внедрён код библиотек: `bootstrap.min.css` для стилизации консоли, и код `htmx.min.js` для AJAX-запросов к серверу.
+Все необходимые для работы файлы находятся внутри скрипта `pdoconsole.php`, и загружаются однократно вместе с телом страницы. Кроме нескольких иконок, внедрён код библиотек: `bootstrap.min.css` для стилизации консоли, и `htmx.min.js` для AJAX-запросов к серверу.
 
 ## Безопасность
 
