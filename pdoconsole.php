@@ -168,7 +168,7 @@ function keydownQuery(el) {
 	if (event.code == 'Tab' && ! event.shiftKey) {
 		event.preventDefault();
 		document.execCommand('insertText', null, "\t")
-	} else if (event.code == 'Enter') {
+	} else if (event.code == 'Enter' && ! event.ctrlKey && ! event.metaKey) {
 		const startValue = el.value.substr(0, el.selectionStart);
 		const str = el.value.substr(0, el.selectionStart).split('\n').pop();
 		const re = new RegExp('^\\s+');
