@@ -1,7 +1,7 @@
 <?php
 /*
  * PDO Console (https://github.com/ibnteo/pdoconsole)
- * Version 2.3 (2023-02-18)
+ * Version 2.4 (2023-02-18)
  */
 
 define ('CRYPT_PASS', 'CrYptPas$w0rd'); // change it
@@ -45,24 +45,28 @@ if (isset($_SERVER['HTTP_HX_REQUEST'])):
 				$sql = "PRAGMA table_info($m[3]);";
 			}
 		}
-		try {
-			$db = new PDO($dsn, $username, $passwd, [
-				PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-				PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-				PDO::ATTR_EMULATE_PREPARES => true,
-				PDO::ATTR_PERSISTENT => true,
-			]);
-			$start = explode(' ', microtime());
-			$stmt = $db->prepare($sql);
-			$result = $stmt->execute();
-			while ($row = $stmt->fetch()) {
-				$rows[] = $row;
+		if (preg_match('/^\s*(UPDATE|DELETE)\s/i', $sql) && ! preg_match('/\sWHERE\s/i', $sql)) {
+			$error = 'UPDATE or DELETE statements without a WHERE statement are dangerous to run!';
+		} else {
+			try {
+				$db = new PDO($dsn, $username, $passwd, [
+					PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+					PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+					PDO::ATTR_EMULATE_PREPARES => true,
+					PDO::ATTR_PERSISTENT => true,
+				]);
+				$start = explode(' ', microtime());
+				$stmt = $db->prepare($sql);
+				$result = $stmt->execute();
+				while ($row = $stmt->fetch()) {
+					$rows[] = $row;
+				}
+				$end = explode(' ', microtime());
+				$time = (floatval($end[1]) + floatval($end[0])) * 1000 - (floatval($start[1]) + floatval($start[0])) * 1000;
+				$count = $stmt->rowCount() ?: count($rows);
+			} catch (Exception $e) {
+				$error = $e->getMessage();
 			}
-			$end = explode(' ', microtime());
-			$time = (floatval($end[1]) + floatval($end[0])) * 1000 - (floatval($start[1]) + floatval($start[0])) * 1000;
-			$count = $stmt->rowCount() ?: count($rows);
-		} catch (Exception $e) {
-			$error = $e->getMessage();
 		}
 		info($time, $count);
 	} else {
@@ -126,7 +130,7 @@ if (isset($_SERVER['HTTP_HX_REQUEST'])):
 </table>
 <?php
 	else:
-		if ($result) echo 'Ok';
+		if ($result) echo "<pre>Ok ($count rows)</pre>";
 	endif;
 
 else:
